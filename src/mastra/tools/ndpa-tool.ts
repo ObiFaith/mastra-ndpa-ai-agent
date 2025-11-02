@@ -8,11 +8,9 @@ const ndpaJson = JSON.parse(fs.readFileSync(ndpaPath, "utf8"));
 
 // --- Simple helper to find best matching section ---
 export const findSectionQuery = async (question: string) => {
-  const query = question.toLowerCase();
-  let bestMatch = null;
-  let bestScore = 0;
+  const query = question.toLowerCase().trim();
 
-  // Flatten parts + sections for searching
+  // Flatten parts + sections
   const allSections = ndpaJson.flatMap((part: any) =>
     part.sections.map((s: any) => ({
       part: part.part,
@@ -21,10 +19,41 @@ export const findSectionQuery = async (question: string) => {
     }))
   );
 
-  // Simple keyword search (can later upgrade to embeddings)
+  // 1️⃣ Try to directly match Part + Section references first
+  const partMatch = query.match(/part\s*([ivx\d]+)/i);
+  const sectionMatch = query.match(/section\s*(\d+)/i);
+
+  if (partMatch || sectionMatch) {
+    const partRoman = partMatch ? partMatch[1].toUpperCase() : null;
+    const sectionNum = sectionMatch ? sectionMatch[1] : null;
+
+    const directMatch = allSections.find((sec: any) => {
+      const normalizedPart = sec.part.toLowerCase();
+      const matchesPart = partRoman
+        ? normalizedPart.includes(`part ${partRoman.toLowerCase()}`)
+        : true;
+      const matchesSection = sectionNum
+        ? sec.section_number === sectionNum
+        : true;
+      return matchesPart && matchesSection;
+    });
+
+    if (directMatch) {
+      return {
+        part: directMatch.part,
+        section_number: directMatch.section_number,
+        summary: directMatch.content.slice(0, 500) + "...",
+      };
+    }
+  }
+
+  // 2️⃣ Otherwise, fall back to content-based fuzzy search
+  let bestMatch = null;
+  let bestScore = 0;
+
   for (const sec of allSections) {
     const content = sec.content.toLowerCase();
-    const score = query.split(" ").filter(w => content.includes(w)).length;
+    const score = query.split(/\s+/).filter(w => content.includes(w)).length;
     if (score > bestScore) {
       bestScore = score;
       bestMatch = sec;
@@ -35,7 +64,7 @@ export const findSectionQuery = async (question: string) => {
     return {
       part: bestMatch.part,
       section_number: bestMatch.section_number,
-      summary: bestMatch.content.slice(0, 500) + "...", // trim for readability
+      summary: bestMatch.content.slice(0, 500) + "...",
     };
   }
 

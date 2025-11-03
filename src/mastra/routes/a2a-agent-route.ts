@@ -36,6 +36,46 @@ export const a2aAgentRoute = registerApiRoute("/a2a/agent/:agentId", {
         );
       }
 
+      // Handle unsupported or missing method
+      if (method !== "message/send") {
+        return c.json({
+          jsonrpc: "2.0",
+          id: requestId || null,
+          result: {
+            id: randomUUID(),
+            contextId: randomUUID(),
+            status: {
+              state: "failed",
+              timestamp: new Date().toISOString(),
+              message: {
+                kind: "message",
+                role: "agent",
+                parts: [
+                  {
+                    kind: "text",
+                    text: "Unknown method. Use 'message/send' or 'help'.",
+                  },
+                ],
+              },
+            },
+            artifacts: [
+              {
+                artifactId: randomUUID(),
+                name: "assistantResponse",
+                parts: [
+                  {
+                    kind: "text",
+                    text: "Unknown method. Use 'message/send' or 'help'.",
+                  },
+                ],
+              },
+            ],
+            history: [],
+            kind: "task",
+          },
+        });
+      }
+
       const agent = mastra.getAgent(agentId);
       if (!agent) {
         return c.json(

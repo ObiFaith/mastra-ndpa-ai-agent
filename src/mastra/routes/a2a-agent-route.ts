@@ -21,6 +21,59 @@ interface Artifact {
   parts: Array<Part>;
 }
 
+function createUnknownMethodResponse(requestId?: string) {
+  const taskId = randomUUID();
+  const contextId = randomUUID();
+  const messageId = randomUUID();
+  const artifactId = randomUUID();
+
+  const errorMessage = "Unknown method. Use 'message/send' or 'help'.";
+
+  return {
+    jsonrpc: "2.0",
+    id: requestId || "",
+    result: {
+      id: taskId,
+      contextId: contextId,
+      status: {
+        state: "failed",
+        timestamp: new Date().toISOString(),
+        message: {
+          kind: "message",
+          role: "agent",
+          parts: [
+            {
+              kind: "text",
+              text: errorMessage,
+              data: null,
+              file_url: null,
+            },
+          ],
+          messageId: messageId,
+          taskId: null,
+          metadata: null,
+        },
+      },
+      artifacts: [
+        {
+          artifactId: artifactId,
+          name: "assistantResponse",
+          parts: [
+            {
+              kind: "text",
+              text: errorMessage,
+              data: null,
+              file_url: null,
+            },
+          ],
+        },
+      ],
+      history: [],
+      kind: "task",
+    },
+  };
+}
+
 export const a2aAgentRoute = registerApiRoute("/a2a/agent/:agentId", {
   method: "POST",
   handler: async c => {
@@ -28,62 +81,25 @@ export const a2aAgentRoute = registerApiRoute("/a2a/agent/:agentId", {
       const mastra = c.get("mastra");
       const agentId = c.req.param("agentId");
 
-      // Parse JSON-RPC 2.0 request
-      const body = await c.req.json();
+      let body;
+      try {
+        // Try to parse JSON body - this will fail if no body is provided
+        body = await c.req.json();
+      } catch (parseError) {
+        // Handle empty body or invalid JSON by returning "Unknown method" response
+        return c.json(createUnknownMethodResponse());
+      }
+
+      // If body is empty object or null/undefined, return "Unknown method"
+      if (!body || Object.keys(body).length === 0) {
+        return c.json(createUnknownMethodResponse());
+      }
+
       const { jsonrpc, id: requestId, method, params } = body;
 
-      // Handle empty JSON or missing method
+      // Handle missing method or unsupported method
       if (!method || method !== "message/send") {
-        const taskId = randomUUID();
-        const contextId = randomUUID();
-        const messageId = randomUUID();
-        const artifactId = randomUUID();
-
-        const errorMessage = "Unknown method. Use 'message/send' or 'help'.";
-
-        return c.json({
-          jsonrpc: "2.0",
-          id: requestId || "",
-          result: {
-            id: taskId,
-            contextId: contextId,
-            status: {
-              state: "failed",
-              timestamp: new Date().toISOString(),
-              message: {
-                kind: "message",
-                role: "agent",
-                parts: [
-                  {
-                    kind: "text",
-                    text: errorMessage,
-                    data: null,
-                    file_url: null,
-                  },
-                ],
-                messageId: messageId,
-                taskId: null,
-                metadata: null,
-              },
-            },
-            artifacts: [
-              {
-                artifactId: artifactId,
-                name: "assistantResponse",
-                parts: [
-                  {
-                    kind: "text",
-                    text: errorMessage,
-                    data: null,
-                    file_url: null,
-                  },
-                ],
-              },
-            ],
-            history: [],
-            kind: "task",
-          },
-        });
+        return c.json(createUnknownMethodResponse(requestId));
       }
 
       // Validate JSON-RPC 2.0 format for valid requests

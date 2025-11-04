@@ -32,24 +32,8 @@ export const a2aAgentRoute = registerApiRoute("/a2a/agent/:agentId", {
       const body = await c.req.json();
       const { jsonrpc, id: requestId, method, params } = body;
 
-      // Validate JSON-RPC 2.0 format
-      if (jsonrpc !== "2.0" || !requestId) {
-        return c.json(
-          {
-            jsonrpc: "2.0",
-            id: requestId || null,
-            error: {
-              code: -32600,
-              message:
-                'Invalid Request: jsonrpc must be "2.0" and id is required',
-            },
-          },
-          400
-        );
-      }
-
-      // Handle unsupported or missing method
-      if (method !== "message/send") {
+      // Handle empty JSON or missing method
+      if (!method || method !== "message/send") {
         const taskId = randomUUID();
         const contextId = randomUUID();
         const messageId = randomUUID();
@@ -73,6 +57,8 @@ export const a2aAgentRoute = registerApiRoute("/a2a/agent/:agentId", {
                   {
                     kind: "text",
                     text: errorMessage,
+                    data: null,
+                    file_url: null,
                   },
                 ],
                 messageId: messageId,
@@ -88,6 +74,8 @@ export const a2aAgentRoute = registerApiRoute("/a2a/agent/:agentId", {
                   {
                     kind: "text",
                     text: errorMessage,
+                    data: null,
+                    file_url: null,
                   },
                 ],
               },
@@ -98,7 +86,24 @@ export const a2aAgentRoute = registerApiRoute("/a2a/agent/:agentId", {
         });
       }
 
+      // Validate JSON-RPC 2.0 format for valid requests
+      if (jsonrpc !== "2.0" || !requestId) {
+        return c.json(
+          {
+            jsonrpc: "2.0",
+            id: requestId || null,
+            error: {
+              code: -32600,
+              message:
+                'Invalid Request: jsonrpc must be "2.0" and id is required',
+            },
+          },
+          400
+        );
+      }
+
       const agent = mastra.getAgent(agentId);
+
       if (!agent) {
         return c.json(
           {
@@ -194,12 +199,12 @@ export const a2aAgentRoute = registerApiRoute("/a2a/agent/:agentId", {
           role: msg.role,
           parts: msg.parts.map((part: Part) => ({
             ...part,
-            data: part.kind === "text" ? null : part.data, // Ensure data field
-            file_url: null, // Add missing field
+            data: part.kind === "text" ? null : part.data,
+            file_url: null,
           })),
           messageId: msg.messageId || randomUUID(),
           taskId: msg.taskId || taskId || randomUUID(),
-          metadata: msg.metadata || null, // Preserve metadata
+          metadata: msg.metadata || null,
         })),
         {
           kind: "message",
@@ -208,13 +213,13 @@ export const a2aAgentRoute = registerApiRoute("/a2a/agent/:agentId", {
             {
               kind: "text",
               text: agentText,
-              data: null, // Add missing field
-              file_url: null, // Add missing field
+              data: null,
+              file_url: null,
             },
           ],
           messageId: randomUUID(),
           taskId: taskId || randomUUID(),
-          metadata: null, // Add missing field
+          metadata: null,
         },
       ];
 
@@ -235,13 +240,13 @@ export const a2aAgentRoute = registerApiRoute("/a2a/agent/:agentId", {
                 {
                   kind: "text",
                   text: agentText,
-                  data: null, // Add this
-                  file_url: null, // Add this
+                  data: null,
+                  file_url: null,
                 },
               ],
               kind: "message",
-              taskId: taskId || randomUUID(), // Add this
-              metadata: null, // Add this
+              taskId: taskId || randomUUID(),
+              metadata: null,
             },
           },
           artifacts,

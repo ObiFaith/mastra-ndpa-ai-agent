@@ -1,7 +1,19 @@
 import { registerApiRoute } from "@mastra/core/server";
 import { randomUUID } from "crypto";
 
-type Part = { kind: "text"; text: string } | { kind: "data"; data: any };
+type Part =
+  | {
+      kind: "text";
+      text: string;
+      data: null;
+      file_url: null;
+    }
+  | {
+      kind: "data";
+      data: any;
+      text: null;
+      file_url: null;
+    };
 
 interface Artifact {
   artifactId: string;
@@ -38,12 +50,19 @@ export const a2aAgentRoute = registerApiRoute("/a2a/agent/:agentId", {
 
       // Handle unsupported or missing method
       if (method !== "message/send") {
+        const taskId = randomUUID();
+        const contextId = randomUUID();
+        const messageId = randomUUID();
+        const artifactId = randomUUID();
+
+        const errorMessage = "Unknown method. Use 'message/send' or 'help'.";
+
         return c.json({
           jsonrpc: "2.0",
-          id: requestId || null,
+          id: requestId || "",
           result: {
-            id: randomUUID(),
-            contextId: randomUUID(),
+            id: taskId,
+            contextId: contextId,
             status: {
               state: "failed",
               timestamp: new Date().toISOString(),
@@ -53,19 +72,22 @@ export const a2aAgentRoute = registerApiRoute("/a2a/agent/:agentId", {
                 parts: [
                   {
                     kind: "text",
-                    text: "Unknown method. Use 'message/send' or 'help'.",
+                    text: errorMessage,
                   },
                 ],
+                messageId: messageId,
+                taskId: null,
+                metadata: null,
               },
             },
             artifacts: [
               {
-                artifactId: randomUUID(),
+                artifactId: artifactId,
                 name: "assistantResponse",
                 parts: [
                   {
                     kind: "text",
-                    text: "Unknown method. Use 'message/send' or 'help'.",
+                    text: errorMessage,
                   },
                 ],
               },
@@ -92,7 +114,7 @@ export const a2aAgentRoute = registerApiRoute("/a2a/agent/:agentId", {
       }
 
       // Extract messages from params
-      const { message, messages, contextId, taskId, metadata } = params || {};
+      const { message, messages, contextId, taskId } = params || {};
 
       let messagesList = [];
       if (message) {
@@ -102,21 +124,41 @@ export const a2aAgentRoute = registerApiRoute("/a2a/agent/:agentId", {
       }
 
       // Convert A2A messages to Mastra format
-      const mastraMessages = messagesList.map(msg => ({
-        role: msg.role,
-        content:
-          msg.parts
-            ?.map(
+      const mastraMessages = messagesList.map(msg => {
+        let content = "";
+
+        if (msg.parts && Array.isArray(msg.parts)) {
+          content = msg.parts
+            .map(
               (part: { kind: "text" | "data"; text?: string; data?: any }) => {
-                if (part.kind === "text") return part.text;
-                if (part.kind === "data") return JSON.stringify(part.data);
+                if (part.kind === "text") return part.text || "";
+                if (part.kind === "data") {
+                  // Handle nested data array (like in your example)
+                  if (Array.isArray(part.data)) {
+                    return part.data
+                      .map((dataItem: any) => {
+                        if (dataItem.kind === "text")
+                          return dataItem.text || "";
+                        return JSON.stringify(dataItem);
+                      })
+                      .join("\n");
+                  }
+                  return JSON.stringify(part.data);
+                }
                 return "";
               }
             )
-            .join("\n") || "",
-      }));
+            .join("\n");
+        }
 
-      // Execute agent
+        return {
+          role: msg.role || "user",
+          content: content,
+          // Preserve metadata if needed
+          metadata: msg.metadata,
+        };
+      });
+
       const response = await agent.generate(mastraMessages);
       const agentText = response.text || "";
 
@@ -125,7 +167,9 @@ export const a2aAgentRoute = registerApiRoute("/a2a/agent/:agentId", {
         {
           artifactId: randomUUID(),
           name: `${agentId}Response`,
-          parts: [{ kind: "text", text: agentText }],
+          parts: [
+            { kind: "text", text: agentText, data: null, file_url: null },
+          ],
         },
       ];
 
@@ -137,25 +181,40 @@ export const a2aAgentRoute = registerApiRoute("/a2a/agent/:agentId", {
           parts: response.toolResults.map(result => ({
             kind: "data",
             data: result,
+            text: null,
+            file_url: null,
           })),
         });
       }
 
-      // Build conversation history
+      // Build conversation history with proper structure
       const history = [
         ...messagesList.map(msg => ({
           kind: "message",
           role: msg.role,
-          parts: msg.parts,
+          parts: msg.parts.map((part: Part) => ({
+            ...part,
+            data: part.kind === "text" ? null : part.data, // Ensure data field
+            file_url: null, // Add missing field
+          })),
           messageId: msg.messageId || randomUUID(),
           taskId: msg.taskId || taskId || randomUUID(),
+          metadata: msg.metadata || null, // Preserve metadata
         })),
         {
           kind: "message",
           role: "agent",
-          parts: [{ kind: "text", text: agentText }],
+          parts: [
+            {
+              kind: "text",
+              text: agentText,
+              data: null, // Add missing field
+              file_url: null, // Add missing field
+            },
+          ],
           messageId: randomUUID(),
           taskId: taskId || randomUUID(),
+          metadata: null, // Add missing field
         },
       ];
 
@@ -172,8 +231,17 @@ export const a2aAgentRoute = registerApiRoute("/a2a/agent/:agentId", {
             message: {
               messageId: randomUUID(),
               role: "agent",
-              parts: [{ kind: "text", text: agentText }],
+              parts: [
+                {
+                  kind: "text",
+                  text: agentText,
+                  data: null, // Add this
+                  file_url: null, // Add this
+                },
+              ],
               kind: "message",
+              taskId: taskId || randomUUID(), // Add this
+              metadata: null, // Add this
             },
           },
           artifacts,
